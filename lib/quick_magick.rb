@@ -1,3 +1,5 @@
+require 'open3'
+
 # Define quick magick error
 module QuickMagick
   class QuickMagickError < RuntimeError; end
@@ -160,16 +162,13 @@ module QuickMagick
 
     # Execute a command line and returns its results when it suceeds
     # When the command fails, it throws QuickMagick::QuickMagickError
-    def exec3(command)
-      error_file = Tempfile.new('error')
-      error_filepath = error_file.path
-      error_file.close
-      result = `#{command} 2>"#{error_filepath}"`
-      unless $?.success?
+    def exec3(*command) 
+      result, error, status = Open3.capture3(*command.flatten)
+      unless status.success?
         error_message = <<-ERROR
           Error executing command: command
           Result is: #{result}
-          Error is: #{File.read(error_filepath)}
+          Error is: #{error}
         ERROR
         raise QuickMagick::QuickMagickError, error_message
       end

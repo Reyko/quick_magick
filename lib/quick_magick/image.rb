@@ -1,10 +1,10 @@
 require "tempfile"
 
 module QuickMagick
-  
   class Image
+    attr_accessor :arguments
+
     class << self
-      
       # create an array of images from the given blob data
       def from_blob(blob, &proc)
         file = Tempfile.new(QuickMagick::random_string)
@@ -23,7 +23,7 @@ module QuickMagick
           images << Image.new(filename, i, info_line)
         end
         images.each(&proc) if block_given?
-        return images
+        images
       end
       
       alias open read
@@ -62,21 +62,20 @@ module QuickMagick
 
       # returns info for an image using <code>identify</code> command
       def identify(filename)
-        QuickMagick.exec3 "identify #{QuickMagick.c filename}"
+        QuickMagick.exec3("identify", filename)
       end
-
     end
 
     # append the given option, value pair to the settings of the current image
     def append_to_settings(arg, value=nil)
-      @arguments << "-#{arg} #{QuickMagick.c value} "
+      arguments << "-#{arg}" << "#{value}"
       @last_is_draw = false
       self
     end
     
     # append the given string as is. Used to append special arguments like +antialias or +debug
     def append_basic(arg)
-      @arguments << arg << ' '
+      arguments << "#{arg}"
     end
 
     # Image settings supported by ImageMagick
@@ -96,9 +95,9 @@ module QuickMagick
     def append_to_operators(arg, value=nil)
       is_draw = (arg == 'draw')
       if @last_is_draw && is_draw
-        @arguments.insert(@arguments.rindex('"'), " #{value}")
+        arguments.insert(arguments.rindex('"'), " #{value}")
       else
-        @arguments << %Q<-#{arg} #{QuickMagick.c value} >
+        arguments << "-#{arg} #{value}"
       end
       @last_is_draw = is_draw
       self
@@ -108,7 +107,7 @@ module QuickMagick
     # Note that you cannot revert an image created from scratch.
     def revert!
       raise QuickMagick::QuickMagickError, "Cannot revert a pseudo image" if @pseudo_image
-      @arguments = ""
+      arguments = []
     end
 
     # Image operators supported by ImageMagick
@@ -201,23 +200,19 @@ module QuickMagick
       @image_filename = filename
       @index = index
       @pseudo_image = pseudo_image
-      if info_line
-        @image_infoline = info_line.split
-        @image_infoline[0..1] = @image_infoline[0..1].join(' ') while @image_infoline.size > 1 && !@image_infoline[0].start_with?(image_filename)
-      end
-      @arguments = ""
+      @arguments = []
+      image_infoline if info_line
     end
-    
-    # The command line so far that will be used to convert or save the image
-    def command_line
-      %Q< "(" #{@arguments} #{QuickMagick.c(image_filename + (@pseudo_image ? "" : "[#{@index}]"))} ")" >
+
+    def input_filename
+      "#{image_filename + (@pseudo_image ? "" : "[#{@index}]")}"
     end
     
     # An information line about the image obtained using 'identify' command line
     def image_infoline
       return nil if @pseudo_image
       unless @image_infoline
-        @image_infoline = QuickMagick::Image::identify(command_line).split
+        @image_infoline = QuickMagick::Image::identify(input_filename).split
         @image_infoline[0..1] = @image_infoline[0..1].join(' ') while @image_infoline.size > 1 && !@image_infoline[0].start_with?(image_filename)
       end
       @image_infoline
@@ -365,13 +360,13 @@ module QuickMagick
     
     # saves the current image to the given filename
     def save(output_filename)
-      result = QuickMagick.exec3 "convert #{command_line} #{QuickMagick.c output_filename}" 
+      result = QuickMagick.exec3(command('convert'), input_filename, output_filename)
     	if @pseudo_image
     		# since it's been saved, convert it to normal image (not pseudo)
     		initialize(output_filename)
 	    	revert!
     	end
-      return result 
+      result 
     end
     
     alias write save
@@ -380,10 +375,10 @@ module QuickMagick
     # saves the current image overwriting the original image file
     def save!
       raise QuickMagick::QuickMagickError, "Cannot mogrify a pseudo image" if @pseudo_image
-      result = QuickMagick.exec3 "mogrify #{command_line}"
+      result = QuickMagick.exec3(command('mogrify'), input_filename)
       # remove all operations to avoid duplicate operations
       revert!
-      return result 
+      result 
     end
 
     alias write! save!
@@ -445,14 +440,14 @@ module QuickMagick
     # WARNING: This is done through command line which is very slow.
     # It is not recommended at all to use this method for image processing for example.
     def get_pixel(x, y)
-      result = QuickMagick.exec3("identify -verbose -crop #{QuickMagick::geometry(1,1,x,y)} #{QuickMagick.c image_filename}[#{@index}]")
+      result = QuickMagick.exec3(command('identify', '-verbose', '-crop', "#{QuickMagick::geometry(1,1,x,y)}"), input_filename)
       result =~ /Histogram:\s*\d+:\s*\(\s*(\d+),\s*(\d+),\s*(\d+)\)/
       return [$1.to_i, $2.to_i, $3.to_i]
     end
 
     # Returns details of the image as found by "identify -verbose" command
     def details
-      str_details = QuickMagick.exec3("identify -verbose #{QuickMagick.c image_filename}[#@index]")
+      str_details = QuickMagick.exec3(command('identify', '-verbose'), input_filename)
       # This is something like breadcrumb for hashes visited at any time
       hash_stack = []
       # Current indentation. Used to infer nesting using indentation
@@ -484,12 +479,18 @@ module QuickMagick
     
     # displays the current image as animated image
     def animate
-      `animate #{command_line}`
+      exec('animate', input_filename)
     end
     
     # displays the current image to the x-windowing system
     def display
-      `display #{command_line}`
+      exec('display', input_filename)
+    end
+
+    private
+
+    def command(cmd, *args)
+      arguments.unshift(cmd) + args
     end
   end
 end

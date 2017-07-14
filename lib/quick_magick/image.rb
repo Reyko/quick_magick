@@ -68,7 +68,7 @@ module QuickMagick
 
     # append the given option, value pair to the settings of the current image
     def append_to_settings(arg, value=nil)
-      arguments << "-#{arg}" << "#{value}"
+      arguments.push("-#{arg}","#{value}")
       @last_is_draw = false
       self
     end
@@ -92,12 +92,14 @@ module QuickMagick
     }
 
     # append the given option, value pair to the args for the current image
-    def append_to_operators(arg, value=nil)
+    def append_to_operators(arg, *value)
       is_draw = (arg == 'draw')
       if @last_is_draw && is_draw
+    #    append_to_settings(arg, *value)
         arguments.insert(arguments.rindex('"'), " #{value}")
       else
-        arguments << "-#{arg} #{value}"
+#        arguments.push("-#{arg}", "#{value}")
+        append_to_settings(arg, *value)
       end
       @last_is_draw = is_draw
       self
@@ -160,7 +162,7 @@ module QuickMagick
         end
       else
         define_method(method.to_sym) do |*args|
-          append_to_settings(method, args.join(" "))
+          append_to_settings(method, *args)
         end
       end
     end
@@ -168,7 +170,7 @@ module QuickMagick
     IMAGE_OPERATORS_METHODS.each do |method|
       if WITH_EQUAL_METHODS.include?(method)
         define_method((method+'=').to_sym) do |arg|
-          append_to_operators(method, arg )
+          append_to_operators(method, arg)
         end
       elsif WITH_GEOMETRY_METHODS.include?(method)
         define_method((method).to_sym) do |*args|
@@ -176,7 +178,7 @@ module QuickMagick
         end
       else
         define_method(method.to_sym) do |*args|
-          append_to_operators(method, args.join(" "))
+          append_to_operators(method, *args)
         end
       end
     end
@@ -355,7 +357,7 @@ module QuickMagick
     
     # Use text to annotate an image with text. Follow the text coordinates with a string.
     def draw_text(x0, y0, text, options={})
-      append_to_operators("draw", "#{options_to_str(options)} text #{x0},#{y0} '#{text}'")
+      append_to_operators("draw", "#{options_to_str(options)}", "text #{x0},#{y0} '#{text}'")
     end
     
     # saves the current image to the given filename
